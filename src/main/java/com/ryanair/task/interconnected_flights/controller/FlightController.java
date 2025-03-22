@@ -1,8 +1,9 @@
 package com.ryanair.task.interconnected_flights.controller;
 
-import com.ryanair.task.interconnected_flights.dto.RouteDTO;
 import com.ryanair.task.interconnected_flights.dto.RouteWithNStopDTO;
+import com.ryanair.task.interconnected_flights.exception.RouteNotFoundException;
 import com.ryanair.task.interconnected_flights.service.FlightService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -19,17 +20,11 @@ public class FlightController {
     }
 
     @GetMapping("/interconnections")
-    public Flux<RouteWithNStopDTO> findFlights(@RequestParam String departure,
-                                               @RequestParam String arrival,
-                                               @RequestParam LocalDateTime departureDateTime,
-                                               @RequestParam LocalDateTime arrivalDateTime){
+    public ResponseEntity<Flux<RouteWithNStopDTO>> findFlights(@RequestParam String departure,
+                                 @RequestParam String arrival,
+                                 @RequestParam LocalDateTime departureDateTime,
+                                 @RequestParam LocalDateTime arrivalDateTime){
+        return ResponseEntity.ok(this.flightService.findFlights(departure, arrival, departureDateTime, arrivalDateTime));
 
-        return this.flightService.findFlights(departure, arrival, departureDateTime, arrivalDateTime);
-    }
-
-    @GetMapping("/test")
-    public Flux<RouteDTO> test(){
-
-        return null;
     }
 }
