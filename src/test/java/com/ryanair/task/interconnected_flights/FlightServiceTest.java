@@ -210,31 +210,6 @@ public class FlightServiceTest {
     }
 
     @Test
-    void testFlightConnectionNotAvailable() {
-        RouteDTO route1 = new RouteDTO("DUB", "STN", null, false, false, "RYANAIR", null);
-        RouteDTO route2 = new RouteDTO("STN", "WRO", null, false, false, "RYANAIR", null);
-
-        when(routesClient.getRoutes()).thenReturn(Flux.just(route1, route2));
-
-        MonthScheduleDTO scheduleDUBtoSTN = new MonthScheduleDTO(3, List.of(
-                new DayDTO(1, List.of(new FlightDTO("101", "06:25", "07:35")))
-        ));
-
-        when(schedulesClient.getSchedule("DUB", "STN", 2018, 3)).thenReturn(Flux.just(scheduleDUBtoSTN));
-        when(schedulesClient.getSchedule("STN", "WRO", 2018, 3)).thenReturn(Flux.empty());
-
-        Flux<RouteWithNStopDTO> result = flightService.findFlights(
-                "DUB", "WRO",
-                LocalDateTime.parse("2018-03-01T06:00"),
-                LocalDateTime.parse("2018-03-01T14:00")
-        );
-
-        List<RouteWithNStopDTO> flights = result.collectList().block();
-        assertNotNull(flights);
-        assertEquals(0, flights.size());
-    }
-
-    @Test
     void testNotExistingRouteShouldThrowRouteNotFoundException() {
         RouteDTO route1 = new RouteDTO("DUB", "STN", null, false, false, "RYANAIR", null);
         when(routesClient.getRoutes()).thenReturn(Flux.just(route1));

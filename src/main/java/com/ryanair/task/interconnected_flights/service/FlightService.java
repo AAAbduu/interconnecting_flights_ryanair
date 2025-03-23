@@ -75,28 +75,27 @@ public class FlightService {
 
     private Flux<RouteWithNStopDTO> validRoutes(Flux<FlightRoute> routes, LocalDateTime departureDate, LocalDateTime arrivalDate) {
         return routes.flatMap(route -> {
-            List<String> airports = route.airports();
+                    List<String> airports = route.airports();
 
-            if (airports.size() == 2) {
-                return processDirectFlight(airports.get(0), airports.get(1), departureDate, arrivalDate)
-                        .collectList()
-                        .filter(legs -> !legs.isEmpty())
-                        .switchIfEmpty(Mono.error(new NoSchedulesFoundException("No schedules found for direct flight from " + airports.get(0) + " to " + airports.get(1))))
-                        .map(legs -> new RouteWithNStopDTO(0, legs))
-                        .flux();
-            }
-            else if (airports.size() == 3) {
-                return processConnectingFlight(airports.get(0), airports.get(1), airports.get(2), departureDate, arrivalDate)
-                        .collectList()
-                        .filter(legs -> legs.size() == 2)
-                        .switchIfEmpty(Mono.error(new NoSchedulesFoundException("No schedules found for connecting flight from " + airports.get(0) + " via " + airports.get(1) + " to " + airports.get(2))))
-                        .map(legs -> new RouteWithNStopDTO(1, legs))
-                        .flux();
-            }
-            else {
-                return Flux.empty();
-            }
-        });
+                    if (airports.size() == 2) {
+                        return processDirectFlight(airports.get(0), airports.get(1), departureDate, arrivalDate)
+                                .collectList()
+                                .filter(legs -> !legs.isEmpty())
+                                .map(legs -> new RouteWithNStopDTO(0, legs))
+                                .flux();
+                    } else if (airports.size() == 3) {
+                        return processConnectingFlight(airports.get(0), airports.get(1), airports.get(2), departureDate, arrivalDate)
+                                .collectList()
+                                .filter(legs -> legs.size() == 2)
+                                .map(legs -> new RouteWithNStopDTO(1, legs))
+                                .flux();
+                    } else {
+                        return Flux.empty();
+                    }
+                }).collectList()
+                .filter(routesList -> !routesList.isEmpty())
+                .switchIfEmpty(Mono.error(new NoSchedulesFoundException("No schedules found for requested route and dates")))
+                .flatMapMany(Flux::fromIterable);
     }
 
     private Flux<LegDTO> processDirectFlight(String origin, String destination, LocalDateTime departureDate, LocalDateTime arrivalDate) {
@@ -105,10 +104,15 @@ public class FlightService {
                 .filter(day -> day.day() == departureDate.getDayOfMonth())
                 .flatMap(day -> Flux.fromIterable(day.flights()))
                 .filter(flight -> LocalTime.parse(flight.departureTime()).isAfter(departureDate.toLocalTime()))
-                .filter(flight -> LocalTime.parse(flight.arrivalTime()).isBefore(arrivalDate.toLocalTime()))
-                .map(flight -> new LegDTO(origin, destination,
-                        LocalDateTime.of(departureDate.toLocalDate(), LocalTime.parse(flight.departureTime())),
-                        LocalDateTime.of(arrivalDate.toLocalDate(), LocalTime.parse(flight.arrivalTime()))));
+                .map(flight -> {
+                    LocalDateTime flightDepartureDateTime = LocalDateTime.of(departureDate.toLocalDate(), LocalTime.parse(flight.departureTime()));
+                    LocalDateTime flightArrivalDateTime = LocalDateTime.of(departureDate.toLocalDate(), LocalTime.parse(flight.arrivalTime()));
+                    if (flightArrivalDateTime.isBefore(flightDepartureDateTime)) {
+                        flightArrivalDateTime = flightArrivalDateTime.plusDays(1);
+                    }
+                    return new LegDTO(origin, destination, flightDepartureDateTime, flightArrivalDateTime);
+                })
+                .filter(leg -> !leg.arrivalDateTime().isAfter(arrivalDate));
     }
 
     private Flux<LegDTO> processConnectingFlight(String origin, String stopover, String destination, LocalDateTime departureDate, LocalDateTime arrivalDate) {
@@ -117,22 +121,34 @@ public class FlightService {
                 .filter(day -> day.day() == departureDate.getDayOfMonth())
                 .flatMap(day -> Flux.fromIterable(day.flights()))
                 .filter(flight1 -> LocalTime.parse(flight1.departureTime()).isAfter(departureDate.toLocalTime()))
-                .flatMap(flight1 -> this.schedulesClient.getSchedule(stopover, destination, departureDate.getYear(), departureDate.getMonthValue())
-                        .flatMap(monthScheduleDTO -> Flux.fromIterable(monthScheduleDTO.days()))
-                        .filter(day -> day.day() == departureDate.getDayOfMonth())
-                        .flatMap(day -> Flux.fromIterable(day.flights()))
-                        .filter(flight2 -> LocalTime.parse(flight2.departureTime()).isAfter(LocalTime.parse(flight1.arrivalTime())))
-                        .filter(flight2 -> LocalTime.parse(flight2.arrivalTime()).isBefore(arrivalDate.toLocalTime()))
-                        .filter(flight2 -> Duration.between(LocalTime.parse(flight1.arrivalTime()), LocalTime.parse(flight2.departureTime())).toHours() >= 2)
-                        .flatMap(flight2 -> Flux.just(
-                                new LegDTO(origin, stopover,
-                                        LocalDateTime.of(departureDate.toLocalDate(), LocalTime.parse(flight1.departureTime())),
-                                        LocalDateTime.of(departureDate.toLocalDate(), LocalTime.parse(flight1.arrivalTime()))),
-                                new LegDTO(stopover, destination,
-                                        LocalDateTime.of(departureDate.toLocalDate(), LocalTime.parse(flight2.departureTime())),
-                                        LocalDateTime.of(arrivalDate.toLocalDate(), LocalTime.parse(flight2.arrivalTime())))
-                        ))
-                );
+                .flatMap(flight1 -> {
+                    LocalDateTime flight1DepartureDateTime = LocalDateTime.of(departureDate.toLocalDate(), LocalTime.parse(flight1.departureTime()));
+                    LocalDateTime flight1ArrivalDateTime = LocalDateTime.of(departureDate.toLocalDate(), LocalTime.parse(flight1.arrivalTime()));
+                    if (flight1ArrivalDateTime.isBefore(flight1DepartureDateTime)) {
+                        flight1ArrivalDateTime = flight1ArrivalDateTime.plusDays(1);
+                    }
+                    LocalDateTime finalFlight1ArrivalDateTime = flight1ArrivalDateTime;
+                    LocalDateTime finalFlight1ArrivalDateTime1 = flight1ArrivalDateTime;
+                    return this.schedulesClient.getSchedule(stopover, destination, departureDate.getYear(), departureDate.getMonthValue())
+                            .flatMap(monthScheduleDTO -> Flux.fromIterable(monthScheduleDTO.days()))
+                            .filter(day -> day.day() == departureDate.getDayOfMonth())
+                            .flatMap(day -> Flux.fromIterable(day.flights()))
+                            .filter(flight2 -> LocalTime.parse(flight2.departureTime()).isAfter(LocalTime.parse(flight1.arrivalTime())))
+                            .map(flight2 -> {
+                                LocalDateTime flight2DepartureDateTime = LocalDateTime.of(departureDate.toLocalDate(), LocalTime.parse(flight2.departureTime()));
+                                LocalDateTime flight2ArrivalDateTime = LocalDateTime.of(departureDate.toLocalDate(), LocalTime.parse(flight2.arrivalTime()));
+                                if (flight2ArrivalDateTime.isBefore(flight2DepartureDateTime)) {
+                                    flight2ArrivalDateTime = flight2ArrivalDateTime.plusDays(1);
+                                }
+                                return new LegDTO(stopover, destination, flight2DepartureDateTime, flight2ArrivalDateTime);
+                            })
+                            .filter(leg -> !leg.arrivalDateTime().isAfter(arrivalDate))
+                            .filter(leg -> Duration.between(finalFlight1ArrivalDateTime.toLocalTime(), leg.departureDateTime().toLocalTime()).toHours() >= 2)
+                            .flatMap(leg -> Flux.just(
+                                    new LegDTO(origin, stopover, flight1DepartureDateTime, finalFlight1ArrivalDateTime1),
+                                    new LegDTO(stopover, destination, leg.departureDateTime(), leg.arrivalDateTime())
+                            ));
+                });
     }
 
 }
