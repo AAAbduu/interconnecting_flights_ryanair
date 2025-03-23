@@ -17,8 +17,7 @@ This project implements an API to search for flight connections between two airp
 
 ## Running the application
 
-1- Download the artifact from the latest build.
-2- Start the application, run:
+Download the artifact from the latest build and start the application by running:
 
 ```sh
 java -jar jar_name.jar
